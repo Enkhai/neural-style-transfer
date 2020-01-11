@@ -30,6 +30,7 @@ def train_image_style(model, content, style, target=None, steps=2000, alpha=1, b
                          'conv4_1': 0.3,
                          'conv5_1': 0.1}
 
+    # we need to update the target image
     optimizer = optim.Adam([target], lr=0.003)
     # we will need the gram matrices of the style features for later
     style_grams = {layer: gram_matrix(style_features[layer]) for layer in style_features}

@@ -8,13 +8,15 @@ from torchvision import transforms
 
 
 # returns a tensor from an image
-def load_image(img_path, max_size=512, shape=None):
-    # http url case
-    if "http" in img_path:
-        response = requests.get(img_path)
-        image = Image.open(BytesIO(response.content)).convert('RGB')
-    else:
-        image = Image.open(img_path).convert('RGB')
+def load_image(img_path, image=None, max_size=512, shape=None):
+    # if an image is not given the img_path should matter
+    if image is None:
+        # http url case
+        if "http" in img_path:
+            response = requests.get(img_path)
+            image = Image.open(BytesIO(response.content)).convert('RGB')
+        else:
+            image = Image.open(img_path).convert('RGB')
 
     # large images will slow down processing
     if max(image.size) > max_size:
