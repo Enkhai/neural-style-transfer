@@ -1,5 +1,4 @@
 import io
-
 import torch
 import sys
 from functools import partial
@@ -16,7 +15,37 @@ from train_style import train_image_style
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
+class TrainingThread(QThread):
+    image_ready = pyqtSignal(Image.Image, int)
+    training_finished = pyqtSignal()
+
+    def __init__(self, model, content, style, steps, show_every, alpha, beta, style_feature_weights):
+        QThread.__init__(self)
+        self.model = model
+        self.content = content
+        self.style = style
+        self.steps = steps
+        self.show_every = show_every
+        self.alpha = alpha
+        self.beta = beta
+        self.style_feature_weights = style_feature_weights
+
+    def run(self):
+        content_tensor = load_image('', image=self.content).to(device)
+        style_tensor = load_image('', image=self.style, shape=content_tensor.shape[-2:]).to(device)
+
+        step = 0
+        for image in train_image_style(self.model, content_tensor, style_tensor,
+                                       steps=self.steps, show_every=self.show_every,
+                                       alpha=self.alpha, beta=self.beta, style_weights=self.style_feature_weights):
+            step += self.show_every
+            self.image_ready.emit(image, step)
+
+        self.training_finished.emit()
+
+
 class MainWindow(QMainWindow):
+    load_output_signal = pyqtSignal(QPixmap)
 
     def __init__(self):
         super().__init__()
@@ -43,6 +72,7 @@ class MainWindow(QMainWindow):
         self.output_label = QLabel()
         self.save_image_button = QPushButton()
 
+        self.threads = []
         self.model = torch.load('model.pth').to(device)
 
         self.init_window()
@@ -224,6 +254,8 @@ class MainWindow(QMainWindow):
 
         self.loading_gif_movie.setScaledSize(self.loading_label.size())
         self.loading_gif_movie.start()
+        self.loading_label.setFixedSize(30, 30)
+        self.loading_label.setScaledContents(True)
         h_box_layout.addWidget(self.loading_label)
         h_box_layout.setAlignment(self.loading_label, Qt.AlignCenter)
 
@@ -231,6 +263,7 @@ class MainWindow(QMainWindow):
         h_box_layout.addWidget(self.error_label)
         h_box_layout.setAlignment(self.error_label, Qt.AlignCenter)
 
+        self.load_output_signal.connect(self.output_label.setPixmap)
         self.output_label.setFixedSize(512, 384)
         h_box_layout.addWidget(self.output_label)
         h_box_layout.setAlignment(self.output_label, Qt.AlignCenter)
@@ -260,6 +293,23 @@ class MainWindow(QMainWindow):
             self.error_label.setText("Please set a style image")
             return
 
+        try:
+            steps = int(self.steps_textbox.text())
+            show_every = int(self.update_every_textbox.text())
+
+            alpha = float(self.alpha_textbox.text())
+            beta = float(self.beta_textbox.text())
+
+            style_feature_weights = {}
+            style_feature_weights['conv1_1'] = float(self.style_feature1_weight.text())
+            style_feature_weights['conv2_1'] = float(self.style_feature2_weight.text())
+            style_feature_weights['conv3_1'] = float(self.style_feature3_weight.text())
+            style_feature_weights['conv4_1'] = float(self.style_feature4_weight.text())
+            style_feature_weights['conv5_1'] = float(self.style_feature5_weight.text())
+        except ValueError:
+            self.error_label.setText("Something went wrong... Please check your parameters!")
+            return
+
         buffer = QBuffer()
         buffer.open(QBuffer.ReadWrite)
 
@@ -278,65 +328,22 @@ class MainWindow(QMainWindow):
         self.save_image_button.setVisible(False)
         self.loading_label.setMovie(self.loading_gif_movie)
 
-        training_thread = self.TrainingThread(self, content, style)
-        training_thread.parameter_error.connect(self.handle_parameter_error)
+        training_thread = TrainingThread(self.model, content, style, steps, show_every, alpha, beta,
+                                         style_feature_weights)
         training_thread.image_ready.connect(self.handle_image_ready)
         training_thread.training_finished.connect(self.handle_training_finished)
+        self.threads.append(training_thread)
         training_thread.start()
-
-    def handle_parameter_error(self):
-        self.error_label.setText("Something went wrong... Please check your parameters!")
 
     def handle_image_ready(self, image, step):
         self.error_label.setText("Showing image for step %d out of %s" % (step, self.steps_textbox.text()))
-        self.output_label.setPixmap(QPixmap.fromImage(ImageQt(image)))
+
+        self.load_output_signal.emit(QPixmap.fromImage(ImageQt(image)))
 
     def handle_training_finished(self):
         self.error_label.setText("Style transfer has been completed")
         self.loading_label.clear()
         self.save_image_button.setVisible(True)
-
-    class TrainingThread(QThread):
-
-        parameter_error = pyqtSignal()
-        image_ready = pyqtSignal(object, object)
-        training_finished = pyqtSignal()
-
-        def __init__(self, outer_instance, content, style):
-            QThread.__init__(self)
-            self.outer_instance = outer_instance
-            self.content = content
-            self.style = style
-
-        def run(self):
-            try:
-                steps = int(self.outer_instance.steps_textbox.text())
-                show_every = int(self.outer_instance.update_every_textbox.text())
-
-                alpha = float(self.outer_instance.alpha_textbox.text())
-                beta = float(self.outer_instance.beta_textbox.text())
-
-                style_feature_weights = {}
-                style_feature_weights['conv1_1'] = float(self.outer_instance.style_feature1_weight.text())
-                style_feature_weights['conv2_1'] = float(self.outer_instance.style_feature2_weight.text())
-                style_feature_weights['conv3_1'] = float(self.outer_instance.style_feature3_weight.text())
-                style_feature_weights['conv4_1'] = float(self.outer_instance.style_feature4_weight.text())
-                style_feature_weights['conv5_1'] = float(self.outer_instance.style_feature5_weight.text())
-            except ValueError:
-                self.parameter_error.emit()
-                return
-
-            content_tensor = load_image('', image=self.content).to(device)
-            style_tensor = load_image('', image=self.style, shape=content_tensor.shape[-2:]).to(device)
-
-            step = 0
-            for image in train_image_style(self.outer_instance.model, content_tensor, style_tensor,
-                                           steps=steps, show_every=show_every,
-                                           alpha=alpha, beta=beta, style_weights=style_feature_weights):
-                step += show_every
-                self.image_ready.emit(image, step)
-
-            self.training_finished.emit()
 
 
 if __name__ == '__main__':
