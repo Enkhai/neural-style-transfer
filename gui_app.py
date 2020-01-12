@@ -45,7 +45,6 @@ class TrainingThread(QThread):
 
 
 class MainWindow(QMainWindow):
-    load_output_signal = pyqtSignal(QPixmap)
 
     def __init__(self):
         super().__init__()
@@ -70,7 +69,6 @@ class MainWindow(QMainWindow):
 
         self.error_label = QLabel()
         self.output_label = QLabel()
-        self.save_image_button = QPushButton()
 
         self.threads = []
         self.model = torch.load('model.pth').to(device)
@@ -79,7 +77,7 @@ class MainWindow(QMainWindow):
 
     def init_window(self):
         self.setWindowTitle("Image style transferor")
-        self.setFixedSize(1000, 1000)
+        self.setFixedSize(1200, 1000)
         self.setStyleSheet("QMainWindow {background-image: url('app_images/background.jpg'); "
                            "background-position: center;}")
 
@@ -155,7 +153,7 @@ class MainWindow(QMainWindow):
         update_every_label = QLabel("Update target image every steps")
         update_every_label.setStyleSheet('color: white')
         update_every_layout.addWidget(update_every_label)
-        self.update_every_textbox.setText("400")
+        self.update_every_textbox.setText("10")
         self.update_every_textbox.setFixedSize(50, 20)
         update_every_layout.addWidget(self.update_every_textbox)
         update_every_widget = QWidget()
@@ -199,7 +197,7 @@ class MainWindow(QMainWindow):
         feature2_label = QLabel("w2")
         feature2_label.setStyleSheet('color: white')
         feature2_layout.addWidget(feature2_label)
-        self.style_feature2_weight.setText("0.8")
+        self.style_feature2_weight.setText("0.75")
         self.style_feature2_weight.setFixedSize(50, 20)
         feature2_layout.addWidget(self.style_feature2_weight)
         feature2_widget = QWidget()
@@ -210,7 +208,7 @@ class MainWindow(QMainWindow):
         feature3_label = QLabel("w3")
         feature3_label.setStyleSheet('color: white')
         feature3_layout.addWidget(feature3_label)
-        self.style_feature3_weight.setText("0.5")
+        self.style_feature3_weight.setText("0.2")
         self.style_feature3_weight.setFixedSize(50, 20)
         feature3_layout.addWidget(self.style_feature3_weight)
         feature3_widget = QWidget()
@@ -221,7 +219,7 @@ class MainWindow(QMainWindow):
         feature4_label = QLabel("w4")
         feature4_label.setStyleSheet('color: white')
         feature4_layout.addWidget(feature4_label)
-        self.style_feature4_weight.setText("0.3")
+        self.style_feature4_weight.setText("0.2")
         self.style_feature4_weight.setFixedSize(50, 20)
         feature4_layout.addWidget(self.style_feature4_weight)
         feature4_widget = QWidget()
@@ -232,7 +230,7 @@ class MainWindow(QMainWindow):
         feature5_label = QLabel("w5")
         feature5_label.setStyleSheet('color: white')
         feature5_layout.addWidget(feature5_label)
-        self.style_feature5_weight.setText("0.1")
+        self.style_feature5_weight.setText("0.2")
         self.style_feature5_weight.setFixedSize(50, 20)
         feature5_layout.addWidget(self.style_feature5_weight)
         feature5_widget = QWidget()
@@ -263,15 +261,10 @@ class MainWindow(QMainWindow):
         h_box_layout.addWidget(self.error_label)
         h_box_layout.setAlignment(self.error_label, Qt.AlignCenter)
 
-        self.load_output_signal.connect(self.output_label.setPixmap)
         self.output_label.setFixedSize(512, 384)
+        self.output_label.setScaledContents(True)
         h_box_layout.addWidget(self.output_label)
         h_box_layout.setAlignment(self.output_label, Qt.AlignCenter)
-
-        self.save_image_button.setText("Save output image")
-        self.save_image_button.setVisible(False)
-        h_box_layout.addWidget(self.save_image_button)
-        h_box_layout.setAlignment(self.save_image_button, Qt.AlignCenter)
 
         widget = QWidget()
         widget.setLayout(h_box_layout)
@@ -325,7 +318,6 @@ class MainWindow(QMainWindow):
         style.save(buffer, "PNG")
         style = Image.open(io.BytesIO(buffer.data()))
 
-        self.save_image_button.setVisible(False)
         self.loading_label.setMovie(self.loading_gif_movie)
 
         training_thread = TrainingThread(self.model, content, style, steps, show_every, alpha, beta,
@@ -336,14 +328,13 @@ class MainWindow(QMainWindow):
         training_thread.start()
 
     def handle_image_ready(self, image, step):
+        image.save("output.jpg")
         self.error_label.setText("Showing image for step %d out of %s" % (step, self.steps_textbox.text()))
-
-        self.load_output_signal.emit(QPixmap.fromImage(ImageQt(image)))
+        self.output_label.setPixmap(QPixmap("output.jpg"))
 
     def handle_training_finished(self):
         self.error_label.setText("Style transfer has been completed")
         self.loading_label.clear()
-        self.save_image_button.setVisible(True)
 
 
 if __name__ == '__main__':
